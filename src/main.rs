@@ -1,4 +1,6 @@
-use eframe::{egui, epaint::{Rect, Rounding, Color32, Pos2, Shadow}};
+use std::cmp::{min, max};
+
+use eframe::{egui::{self, Sense}, epaint::{Rect, Rounding, Color32, Pos2, Shadow, Vec2}};
 use rand::rngs::ThreadRng;
 
 mod map;
@@ -12,20 +14,23 @@ fn main() {
     ).unwrap();
 }
 
-#[derive(Default)]
 struct App {
     map: map::Map,
-    //rng: ThreadRng
+    rng: ThreadRng,
+    scale: f32,
+    origin: Vec2,
 }
 
-// impl Default for App {
-//     fn default() -> Self {
-//         Self { 
-//             rng: rand::thread_rng(),
-//             ..Default::default()
-//         }
-//     }
-// }
+impl Default for App {
+    fn default() -> Self {
+        Self { 
+            map: map::Map::new(),
+            scale: 10.0,
+            rng: rand::thread_rng(),
+            origin: Vec2::ZERO,
+        }
+    }
+}
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -38,27 +43,52 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         
         egui::Window::new("Tools")
         .title_bar(false)
         .show(ctx, |ui| {
             ui.label("Tools");
             if ui.button("Add walk").clicked() {
-                //self.map.random_walk(&mut self.rng);
+                self.map.random_walk(&mut self.rng);
+            }
+            if ui.button("Reset").clicked() {
+                self.map.reset();
             }
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        let mut response = egui::CentralPanel::default().show(ctx, |ui| {
             let painter = ui.painter();
-            painter.rect_filled(ui.clip_rect(), Rounding::none(), Color32::GREEN);
             let Pos2 { x: width, y: height } = ui.clip_rect().max;
 
-            for y in self.map.rows() {
-                for x in self.map.cols() {
-                    let rect = Rect { 
-                        min: Pos2 { x: x as f32*10.0, y: y as f32*10.0 }, 
-                        max: Pos2 { x: x as f32*10.0 + 10.0, y: y as f32*10.0 + 10.0 } 
+            let zoom_delta = ui.input(|i| {
+                match i.scroll_delta.y {
+                    x if x > 0.0 => 1.1,
+                    x if x < 0.0 => 1.0/1.1,
+                    _ => 1.0,
+                }
+            });
+
+            if zoom_delta != 1.0 {
+                self.scale = (self.scale * zoom_delta).clamp(1.0, 100.0);
+            }
+
+
+            //Only draw visible rectangles
+            let row_start = max((self.origin.y /self.scale) as usize, 0);
+            let row_end = min(((self.origin.y + height) / self.scale) as usize + 1, self.map.height() );
+
+            let col_start = max((self.origin.x /self.scale) as usize, 0);
+            let col_end = min(((self.origin.x + width) / self.scale) as usize + 1, self.map.width() );
+
+            for y in row_start..row_end {
+                for x in col_start..col_end {
+                    let top = y as f32*self.scale;
+                    let left = x as f32*self.scale;
+
+                    let rect = Rect {
+                        min: Pos2 { x: left, y: top } - self.origin, 
+                        max: Pos2 { x: left + self.scale, y: top + self.scale } - self.origin 
                     };
                     if let Some(color) = self.map.at(x, y) {
                         painter.rect_filled(rect, Rounding::none(), color);
@@ -66,8 +96,9 @@ impl eframe::App for App {
                     
                 }
             }
-            //print!("{:?}", ui.clip_rect());
-            painter.rect_filled(Rect {min: Pos2{x: 0.0, y: 0.0}, max: Pos2{x: 10.0, y: 10.0}}, Rounding::none(), Color32::BLUE);
-        });
+        }).response.interact(Sense::click_and_drag());
+
+        let drag_delta = response.drag_delta();
+        self.origin += -drag_delta;
     }
 }

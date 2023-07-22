@@ -26,11 +26,20 @@ impl Distribution<CardinalDirection> for Standard {
 
 pub struct Map {
     color_grid: Vec<Vec<Color>>,
+    origin_x: usize,
+    origin_y: usize,
 }
 
 impl Map {
+    const HEIGHT: usize = 100;
+    const WIDTH: usize = 200;
+
     pub fn new() -> Self {
-        Map { color_grid: vec![vec![Color::BLACK; 64]; 64] }
+        Map { 
+            color_grid: vec![vec![Color::BLACK; Self::WIDTH]; Self::HEIGHT], 
+            origin_x: Self::WIDTH / 2, 
+            origin_y: Self::HEIGHT / 2
+        }
     }
 
     pub fn reset(&mut self) {
@@ -43,12 +52,10 @@ impl Map {
     }
 
     pub fn random_walk(&mut self, rng: &mut ThreadRng) {
-        let height = self.color_grid.len();
-        let width = self.color_grid[0].len();
-        let mut y = height / 2;
-        let mut x = width / 2;
+        let mut y = self.origin_y;
+        let mut x = self.origin_x;
 
-        for _ in 0..100 {
+        for _ in 0..500 {
             use CardinalDirection::*;
             match rng.gen::<CardinalDirection>() {
                 Up => y += 1,
@@ -56,19 +63,19 @@ impl Map {
                 Left => x -= 1,
                 Right => x += 1,
             }
-            x = x.clamp(0, width);
-            y = y.clamp(0, height);
+            x = x.clamp(0, Self::WIDTH);
+            y = y.clamp(0, Self::HEIGHT);
 
             self.color_grid[y][x] = Color::WHITE;
         }
     }
 
-    pub fn rows(&self) -> std::ops::Range<usize> {
-        0..self.color_grid.len()
+    pub fn height(&self) -> usize {
+        Self::HEIGHT
     }
 
-    pub fn cols(&self) -> std::ops::Range<usize> {
-        0..self.color_grid[0].len()
+    pub fn width(&self) -> usize {
+        Self::WIDTH
     }
 
     pub fn at(&self, x: usize, y: usize) -> Option<Color> {
