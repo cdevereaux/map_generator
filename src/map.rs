@@ -1,8 +1,8 @@
 use eframe::epaint::Color32 as Color;
-use rand::Rng;
 use rand::distributions::Distribution;
 use rand::distributions::Standard;
 use rand::rngs::ThreadRng;
+use rand::Rng;
 
 pub enum CardinalDirection {
     Up,
@@ -10,7 +10,6 @@ pub enum CardinalDirection {
     Left,
     Right,
 }
-
 
 impl Distribution<CardinalDirection> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CardinalDirection {
@@ -23,7 +22,6 @@ impl Distribution<CardinalDirection> for Standard {
     }
 }
 
-
 pub struct Map {
     color_grid: Vec<Vec<Color>>,
     origin_x: usize,
@@ -35,20 +33,19 @@ impl Map {
     const WIDTH: usize = 200;
 
     pub fn new() -> Self {
-        Map { 
-            color_grid: vec![vec![Color::BLACK; Self::WIDTH]; Self::HEIGHT], 
-            origin_x: Self::WIDTH / 2, 
-            origin_y: Self::HEIGHT / 2
+        Map {
+            color_grid: vec![vec![Color::BLACK; Self::WIDTH]; Self::HEIGHT],
+            origin_x: Self::WIDTH / 2,
+            origin_y: Self::HEIGHT / 2,
         }
     }
 
     pub fn reset(&mut self) {
-        self.color_grid.iter_mut().for_each(
-            |row| {
-                row.iter_mut().for_each(|p| {
-                    *p = Color::BLACK;
-                })
-            });
+        self.color_grid.iter_mut().for_each(|row| {
+            row.iter_mut().for_each(|p| {
+                *p = Color::BLACK;
+            })
+        });
     }
 
     pub fn random_walk(&mut self, rng: &mut ThreadRng) {
@@ -81,12 +78,10 @@ impl Map {
     pub fn at(&self, x: usize, y: usize) -> Option<Color> {
         if let Some(row) = self.color_grid.get(y) {
             row.get(x).copied()
-        }
-        else {
+        } else {
             None
         }
     }
-
 }
 
 impl Default for Map {
