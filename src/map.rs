@@ -1,8 +1,26 @@
 use eframe::epaint::Color32 as Color;
+use eframe::epaint::ColorImage;
 use rand::distributions::Distribution;
 use rand::distributions::Standard;
 use rand::rngs::ThreadRng;
 use rand::Rng;
+
+//A list of visually distinct colours
+const COLOR_LIST: [Color; 12] = [
+    Color::from_rgb(0xa6, 0xce, 0xe3),
+    Color::from_rgb(0x1f, 0x78, 0xb4),
+    Color::from_rgb(0xb2, 0xdf, 0x8a),
+    Color::from_rgb(0x33, 0xa0, 0x2c),
+    Color::from_rgb(0xfb, 0x9a, 0x99),
+    Color::from_rgb(0xe3, 0x1a, 0x1c),
+    Color::from_rgb(0xfd, 0xbf, 0x6f),
+    Color::from_rgb(0xff, 0x7f, 0x00),
+    Color::from_rgb(0xca, 0xb2, 0xd6),
+    Color::from_rgb(0x6a, 0x3d, 0x9a),
+    Color::from_rgb(0xff, 0xff, 0x99),
+    Color::from_rgb(0xb1, 0x59, 0x28),
+];
+
 
 pub enum CardinalDirection {
     Up,
@@ -24,19 +42,17 @@ impl Distribution<CardinalDirection> for Standard {
 
 pub struct Map {
     color_grid: Vec<Vec<Color>>,
-    origin_x: usize,
-    origin_y: usize,
+    rng: ThreadRng,
 }
 
 impl Map {
-    const HEIGHT: usize = 100;
-    const WIDTH: usize = 200;
+    const HEIGHT: usize = 1000;
+    const WIDTH: usize = 2000;
 
     pub fn new() -> Self {
         Map {
             color_grid: vec![vec![Color::BLACK; Self::WIDTH]; Self::HEIGHT],
-            origin_x: Self::WIDTH / 2,
-            origin_y: Self::HEIGHT / 2,
+            rng: rand::thread_rng(),
         }
     }
 
@@ -48,23 +64,48 @@ impl Map {
         });
     }
 
-    pub fn random_walk(&mut self, rng: &mut ThreadRng) {
-        let mut y = self.origin_y;
-        let mut x = self.origin_x;
+    fn random_walk(&mut self, x0: usize, y0: usize, color: Color) -> Vec<(usize, usize)> {
+        let (mut x, mut y) = (x0, y0);
+        let mut path = Vec::new();
 
         for _ in 0..500 {
             use CardinalDirection::*;
-            match rng.gen::<CardinalDirection>() {
+            match self.rng.gen::<CardinalDirection>() {
                 Up => y += 1,
-                Down => y -= 1,
-                Left => x -= 1,
+                Down => if y != 0 {y -= 1},
+                Left => if x != 0 {x -= 1},
                 Right => x += 1,
             }
-            x = x.clamp(0, Self::WIDTH);
-            y = y.clamp(0, Self::HEIGHT);
+            x = x.clamp(0, Self::WIDTH - 1);
+            y = y.clamp(0, Self::HEIGHT - 1);
 
-            self.color_grid[y][x] = Color::WHITE;
+            path.push((x,y));
+            self.color_grid[y][x] = color;
         }
+        path
+    }
+
+    pub fn generate(&mut self) {
+        let (mut x0, mut y0) = (Self::WIDTH / 2, Self::HEIGHT / 2);
+
+        for i in 0..12 {
+            let color = COLOR_LIST[i % COLOR_LIST.len()];
+            let mut paths = Vec::new();
+            for _ in 0..5 {paths.append(&mut self.random_walk(x0, y0, color))}
+            let furthest_point = paths.iter().max_by(
+            |(x1, y1), (x2, y2)| {
+                let x0 = x0 as i64;
+                let y0 = y0 as i64;
+                let x1 = *x1 as i64;
+                let y1 = *y1 as i64;
+                let x2 = *x2 as i64;
+                let y2 = *y2 as i64;
+                ( (x1 - x0).pow(2) + (y1 - y0).pow(2) )
+                .cmp(&( (x2 - x0).pow(2) + (y2 - y0).pow(2) ))
+            });
+            (x0, y0) = *furthest_point.unwrap_or(&(x0, y0));
+        }
+        
     }
 
     pub fn height(&self) -> usize {
@@ -81,6 +122,12 @@ impl Map {
         } else {
             None
         }
+    }
+
+    pub fn to_color_image(&mut self) -> ColorImage {
+        let mut pixels = Vec::new();
+        for i in 0..self.color_grid.len() {pixels.append(&mut self.color_grid[i].clone());}
+        ColorImage { size: [Self::WIDTH, Self::HEIGHT], pixels: pixels }
     }
 }
 
