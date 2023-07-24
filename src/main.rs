@@ -1,10 +1,7 @@
-use std::cmp::{max, min};
-
 use eframe::{
     egui::{self, Sense, TextureOptions},
-    epaint::{Pos2, Rect, Rounding, Shadow, Vec2, pos2, Color32, TextureId, TextureManager, ImageData, TextureHandle},
+    epaint::{pos2, Color32, ImageData, Rect, Shadow, TextureHandle, Vec2},
 };
-use rand::rngs::ThreadRng;
 
 mod map;
 
@@ -21,29 +18,9 @@ fn main() {
 struct App {
     map: map::Map,
     map_texture: TextureHandle,
-    rng: ThreadRng,
     zoom: f32,
     image_translation: Vec2,
 }
-
-// impl Default for App {
-//     fn default() -> Self {
-//         let mut map = map::Map::new();
-//         map.generate();
-//         let map_texture = texture_manager.alloc(
-//             "map".to_string(), 
-//             ImageData::Color(map.to_color_image()), 
-//             TextureOptions::LINEAR,
-//         );
-//         Self {
-//             map,
-//             map_texture,
-//             scale: 10.0,
-//             rng: rand::thread_rng(),
-//             image_translation: Vec2::ZERO,
-//         }
-//     }
-// }
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -54,15 +31,14 @@ impl App {
         let mut map = map::Map::new();
         map.generate();
         let map_texture = cc.egui_ctx.load_texture(
-            "map".to_string(), 
-            ImageData::Color(map.to_color_image()), 
+            "map".to_string(),
+            ImageData::Color(map.to_color_image()),
             TextureOptions::NEAREST,
         );
         Self {
             map,
             map_texture,
             zoom: 1.0,
-            rng: rand::thread_rng(),
             image_translation: Vec2::ZERO,
         }
     }
@@ -76,8 +52,9 @@ impl eframe::App for App {
                 self.map.reset();
                 self.map.generate();
                 self.map_texture.set(
-                    ImageData::Color(self.map.to_color_image()), 
-                    TextureOptions::NEAREST);
+                    ImageData::Color(self.map.to_color_image()),
+                    TextureOptions::NEAREST,
+                );
             }
         });
 
@@ -91,11 +68,11 @@ impl eframe::App for App {
 
                 let painter = ui.painter();
                 painter.image(
-                    self.map_texture.id(), 
-                    Rect::from_center_size(image_center, image_size), 
-                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), 
-                    Color32::WHITE);
-
+                    self.map_texture.id(),
+                    Rect::from_center_size(image_center, image_size),
+                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
 
                 let zoom_delta = ui.input(|i| match i.scroll_delta.y {
                     x if x > 0.0 => 1.1,
@@ -103,38 +80,6 @@ impl eframe::App for App {
                     _ => 1.0,
                 });
                 self.zoom = (self.zoom * zoom_delta).clamp(0.1, 10.0);
-
-
-                // //Only draw visible rectangles
-                // let row_start = max((self.origin.y / self.scale) as usize, 0);
-                // let row_end = min(
-                //     ((self.origin.y + height) / self.scale) as usize + 1,
-                //     self.map.height(),
-                // );
-
-                // let col_start = max((self.origin.x / self.scale) as usize, 0);
-                // let col_end = min(
-                //     ((self.origin.x + width) / self.scale) as usize + 1,
-                //     self.map.width(),
-                // );
-
-                // for y in row_start..row_end {
-                //     for x in col_start..col_end {
-                //         let top = y as f32 * self.scale;
-                //         let left = x as f32 * self.scale;
-
-                //         let rect = Rect {
-                //             min: Pos2 { x: left, y: top } - self.origin,
-                //             max: Pos2 {
-                //                 x: left + self.scale,
-                //                 y: top + self.scale,
-                //             } - self.origin,
-                //         };
-                //         if let Some(color) = self.map.at(x, y) {
-                //             painter.rect_filled(rect, Rounding::none(), color);
-                //         }
-                //     }
-                //}
             })
             .response
             .interact(Sense::click_and_drag());

@@ -21,7 +21,6 @@ const COLOR_LIST: [Color; 12] = [
     Color::from_rgb(0xb1, 0x59, 0x28),
 ];
 
-
 pub enum CardinalDirection {
     Up,
     Down,
@@ -72,14 +71,14 @@ impl Map {
             use CardinalDirection::*;
             match self.rng.gen::<CardinalDirection>() {
                 Up => y += 1,
-                Down => if y != 0 {y -= 1},
-                Left => if x != 0 {x -= 1},
+                Down => y = y.saturating_sub(1),
+                Left => x = x.saturating_sub(1),
                 Right => x += 1,
             }
             x = x.clamp(0, Self::WIDTH - 1);
             y = y.clamp(0, Self::HEIGHT - 1);
 
-            path.push((x,y));
+            path.push((x, y));
             self.color_grid[y][x] = color;
         }
         path
@@ -91,43 +90,31 @@ impl Map {
         for i in 0..12 {
             let color = COLOR_LIST[i % COLOR_LIST.len()];
             let mut paths = Vec::new();
-            for _ in 0..5 {paths.append(&mut self.random_walk(x0, y0, color))}
-            let furthest_point = paths.iter().max_by(
-            |(x1, y1), (x2, y2)| {
+            for _ in 0..5 {
+                paths.append(&mut self.random_walk(x0, y0, color))
+            }
+            let furthest_point = paths.iter().max_by(|(x1, y1), (x2, y2)| {
                 let x0 = x0 as i64;
                 let y0 = y0 as i64;
                 let x1 = *x1 as i64;
                 let y1 = *y1 as i64;
                 let x2 = *x2 as i64;
                 let y2 = *y2 as i64;
-                ( (x1 - x0).pow(2) + (y1 - y0).pow(2) )
-                .cmp(&( (x2 - x0).pow(2) + (y2 - y0).pow(2) ))
+                ((x1 - x0).pow(2) + (y1 - y0).pow(2)).cmp(&((x2 - x0).pow(2) + (y2 - y0).pow(2)))
             });
             (x0, y0) = *furthest_point.unwrap_or(&(x0, y0));
         }
-        
     }
 
-    pub fn height(&self) -> usize {
-        Self::HEIGHT
-    }
-
-    pub fn width(&self) -> usize {
-        Self::WIDTH
-    }
-
-    pub fn at(&self, x: usize, y: usize) -> Option<Color> {
-        if let Some(row) = self.color_grid.get(y) {
-            row.get(x).copied()
-        } else {
-            None
-        }
-    }
-
-    pub fn to_color_image(&mut self) -> ColorImage {
+    pub fn to_color_image(&self) -> ColorImage {
         let mut pixels = Vec::new();
-        for i in 0..self.color_grid.len() {pixels.append(&mut self.color_grid[i].clone());}
-        ColorImage { size: [Self::WIDTH, Self::HEIGHT], pixels: pixels }
+        for i in 0..self.color_grid.len() {
+            pixels.append(&mut self.color_grid[i].clone());
+        }
+        ColorImage {
+            size: [Self::WIDTH, Self::HEIGHT],
+            pixels,
+        }
     }
 }
 
