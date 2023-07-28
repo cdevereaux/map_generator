@@ -48,6 +48,35 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::Window::new("Tools").title_bar(false).show(ctx, |ui| {
             ui.label("Tools");
+
+            if ui
+                .add(egui::DragValue::new(&mut self.map.cavern_count).prefix("Cavern Count: "))
+                .changed()
+            {
+                self.map.cavern_count = self.map.cavern_count.clamp(1, 64);
+            }
+
+            if ui
+                .add(egui::DragValue::new(&mut self.map.max_cavern_dist).prefix("Max. Cavern Dist.: "))
+                .changed()
+            {
+                self.map.max_cavern_dist = self.map.max_cavern_dist.clamp(0, 300);
+            }
+
+            if ui
+                .add(egui::DragValue::new(&mut self.map.walk_count).prefix("Walk Count: "))
+                .changed()
+            {
+                self.map.walk_count = self.map.walk_count.clamp(1, 100);
+            }
+
+            if ui
+                .add(egui::DragValue::new(&mut self.map.walk_len).prefix("Walk Length: "))
+                .changed()
+            {
+                self.map.walk_len = self.map.walk_len.clamp(1, 500);
+            }
+
             if ui.button("Reset").clicked() {
                 self.map.reset();
                 self.map.generate();

@@ -1,7 +1,11 @@
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+
 use eframe::epaint::Color32 as Color;
 use eframe::epaint::ColorImage;
 use rand::distributions::Distribution;
 use rand::distributions::Standard;
+use rand::distributions::WeightedIndex;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
@@ -39,9 +43,31 @@ impl Distribution<CardinalDirection> for Standard {
     }
 }
 
+impl Distribution<CardinalDirection> for WeightedIndex<f32> {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CardinalDirection {
+        match rng.gen_range(0..4) {
+            0 => CardinalDirection::Up,
+            1 => CardinalDirection::Down,
+            2 => CardinalDirection::Left,
+            _ => CardinalDirection::Right,
+        }
+    }
+}
+
+//chebyshev distance
+fn distance(p0: (usize, usize), p1: (usize, usize)) -> usize {
+    std::cmp::max(p0.0.abs_diff(p1.0), p0.1.abs_diff(p1.1))
+}
+
+
+
 pub struct Map {
     color_grid: Vec<Vec<Color>>,
     rng: ThreadRng,
+    pub cavern_count: usize,
+    pub max_cavern_dist: usize,
+    pub walk_count: usize,
+    pub walk_len: usize,
 }
 
 impl Map {
@@ -52,6 +78,10 @@ impl Map {
         Map {
             color_grid: vec![vec![Color::BLACK; Self::WIDTH]; Self::HEIGHT],
             rng: rand::thread_rng(),
+            cavern_count: 12,
+            max_cavern_dist: 100,
+            walk_count: 50,
+            walk_len: 50,
         }
     }
 
@@ -63,11 +93,68 @@ impl Map {
         });
     }
 
+    //A* search
+    fn get_path(&self, start: (usize, usize), target: (usize, usize)) -> Option<Vec<(usize, usize)>> {
+        let mut open_set = BTreeSet::new(); //(weight, point, came_from)
+        let mut best_paths = HashMap::new(); //(point: (came_from, length))
+        
+        open_set.insert((distance(start, target), start, start));
+        while let Some((weight, point, came_from)) = open_set.pop_first() {
+            if point == target {
+                let mut last_point = target;
+                let mut path: Vec<(usize, usize)> = (0..).map_while(|_| {
+                    if let Some((next, _)) = best_paths.get(&last_point) {
+                        let temp = last_point;
+                        last_point = *next;
+                        Some(temp)
+                    } else {None}
+                }).collect();
+                path.reverse();
+                return Some(path);
+            }
+
+            open_set.remove(&(weight, point, came_from));
+            for (dx, dy) in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)] {
+                let length_delta = if dx != 0 && dy != 0 {2} else {1};
+                let tentative_length = weight + length_delta - distance(point, target);
+
+                let next_point = (point.0.saturating_add_signed(dx), point.1.saturating_add_signed(dy));
+
+                if next_point == start {continue;}
+                if self.get(next_point.0, next_point.1) == Some(&Color::BLACK) || self.get(next_point.0, next_point.1) == None {continue;}
+                
+                let successor = (
+                    tentative_length + distance(next_point, target),
+                    next_point,
+                    point
+                );
+
+                let updated = if let Some((came_from, length)) = best_paths.get_mut(&next_point) {
+                    if *length > tentative_length {
+                        *came_from = point;
+                        *length = tentative_length;
+                        true
+                    } else {false}
+                } else {
+                    best_paths.insert(next_point, (point, tentative_length));
+                    true
+                };
+
+                if updated {
+                    open_set.insert(successor);
+                }
+                
+            }
+        }
+        None
+    }
+
+
     fn random_walk(&mut self, x0: usize, y0: usize, color: Color) -> Vec<(usize, usize)> {
         let (mut x, mut y) = (x0, y0);
         let mut path = Vec::new();
 
-        for _ in 0..500 {
+        for _ in 0..self.walk_len {
             use CardinalDirection::*;
             match self.rng.gen::<CardinalDirection>() {
                 Up => y += 1,
@@ -79,30 +166,48 @@ impl Map {
             y = y.clamp(0, Self::HEIGHT - 1);
 
             path.push((x, y));
-            self.color_grid[y][x] = color;
+            if let Some(tile) = self.get_mut(x, y) {
+                *tile = color;
+            }
         }
         path
     }
 
     pub fn generate(&mut self) {
-        let (mut x0, mut y0) = (Self::WIDTH / 2, Self::HEIGHT / 2);
+        self.generate_caverns();
+    }
 
-        for i in 0..12 {
-            let color = COLOR_LIST[i % COLOR_LIST.len()];
-            let mut paths = Vec::new();
-            for _ in 0..5 {
-                paths.append(&mut self.random_walk(x0, y0, color))
+    pub fn generate_caverns(&mut self) {
+        let mut caverns = vec![(Self::WIDTH / 2, Self::HEIGHT / 2)];
+
+        while caverns.len() < self.cavern_count {
+            let (x, y) = (
+                self.rng.gen_range(0..Self::WIDTH),
+                self.rng.gen_range(0..Self::HEIGHT),
+            );
+            if caverns.iter().all(|(x0, y0)| {
+                distance((*x0, *y0), (x, y)) < self.max_cavern_dist
+            }) {
+                caverns.push((x, y));
             }
-            let furthest_point = paths.iter().max_by(|(x1, y1), (x2, y2)| {
-                let x0 = x0 as i64;
-                let y0 = y0 as i64;
-                let x1 = *x1 as i64;
-                let y1 = *y1 as i64;
-                let x2 = *x2 as i64;
-                let y2 = *y2 as i64;
-                ((x1 - x0).pow(2) + (y1 - y0).pow(2)).cmp(&((x2 - x0).pow(2) + (y2 - y0).pow(2)))
-            });
-            (x0, y0) = *furthest_point.unwrap_or(&(x0, y0));
+        }
+
+        for (x0, y0) in &caverns {
+            let mut paths = Vec::new();
+            for _ in 0..self.walk_count {
+                paths.append(&mut self.random_walk(*x0, *y0, Color::WHITE))
+            }
+        }
+
+        let p0 = caverns[0];
+        for i in 0..caverns.len() {
+            let p = caverns[i];
+            let color = COLOR_LIST[i % COLOR_LIST.len()];
+            if let Some(path) = self.get_path(p0, p) {
+                for (x, y) in path {
+                    *self.get_mut(x, y).unwrap() = color;
+                }
+            }
         }
     }
 
@@ -115,6 +220,18 @@ impl Map {
             size: [Self::WIDTH, Self::HEIGHT],
             pixels,
         }
+    }
+
+    fn get(&self, x: usize, y: usize) -> Option<&Color> {
+        if let Some(row) = self.color_grid.get(y) {
+            row.get(x)
+        } else {None}
+    }
+
+    fn get_mut(&mut self, x: usize, y: usize) -> Option<&mut Color> {
+        if let Some(row) = self.color_grid.get_mut(y) {
+            row.get_mut(x)
+        } else {None}
     }
 }
 
