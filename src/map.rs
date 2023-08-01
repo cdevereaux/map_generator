@@ -5,7 +5,6 @@ use eframe::epaint::Color32 as Color;
 use eframe::epaint::ColorImage;
 use rand::distributions::Distribution;
 use rand::distributions::Standard;
-use rand::distributions::WeightedIndex;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
@@ -25,6 +24,7 @@ const COLOR_LIST: [Color; 12] = [
     Color::from_rgb(0xb1, 0x59, 0x28),
 ];
 
+#[derive(PartialEq, Debug)]
 pub enum CardinalDirection {
     Up,
     Down,
@@ -32,18 +32,8 @@ pub enum CardinalDirection {
     Right,
 }
 
-impl Distribution<CardinalDirection> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CardinalDirection {
-        match rng.gen_range(0..4) {
-            0 => CardinalDirection::Up,
-            1 => CardinalDirection::Down,
-            2 => CardinalDirection::Left,
-            _ => CardinalDirection::Right,
-        }
-    }
-}
 
-impl Distribution<CardinalDirection> for WeightedIndex<f32> {
+impl Distribution<CardinalDirection> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CardinalDirection {
         match rng.gen_range(0..4) {
             0 => CardinalDirection::Up,
@@ -149,6 +139,50 @@ impl Map {
         None
     }
 
+    
+    fn generate_connecting_tunnel(&mut self, start: (usize, usize), target: (usize, usize), color: Color) -> Vec<(usize, usize)> {
+        let (mut x, mut y) = start;
+        let mut path = Vec::new();
+        
+
+        for i in 0.. {
+            use CardinalDirection::*;
+            let direction_to_target = (
+                if target.0.saturating_sub(x) > 0 {Right} else {Left},
+                if target.1.saturating_sub(y) > 0 {Up} else {Down},
+            );
+
+            let mut rerolls = i%2;
+            let next_step = loop {
+                let tentative_step = self.rng.gen::<CardinalDirection>();
+                if tentative_step != direction_to_target.0 && tentative_step != direction_to_target.1 && rerolls > 0 {
+                    rerolls -= 1;
+                    continue;
+                }
+                break tentative_step;
+            };
+
+            match next_step {
+                Up => y += 1,
+                Down => y = y.saturating_sub(1),
+                Left => x = x.saturating_sub(1),
+                Right => x += 1,
+            }
+            x = x.clamp(0, Self::WIDTH - 1);
+            y = y.clamp(0, Self::HEIGHT - 1);
+
+            path.push((x, y));
+            if let Some(tile) = self.get_mut(x, y) {
+                *tile = color;
+            }
+            
+            if i%128 == 0 && self.get_path(start, target).is_some() {break;} 
+        }
+        path
+        
+    }
+
+
 
     fn random_walk(&mut self, x0: usize, y0: usize, color: Color) -> Vec<(usize, usize)> {
         let (mut x, mut y) = (x0, y0);
@@ -185,30 +219,35 @@ impl Map {
                 self.rng.gen_range(0..Self::WIDTH),
                 self.rng.gen_range(0..Self::HEIGHT),
             );
-            if caverns.iter().all(|(x0, y0)| {
+            if caverns.iter().any(|(x0, y0)| {
                 distance((*x0, *y0), (x, y)) < self.max_cavern_dist
             }) {
                 caverns.push((x, y));
             }
         }
 
+        let mut first = true; //Temp
         for (x0, y0) in &caverns {
             let mut paths = Vec::new();
             for _ in 0..self.walk_count {
-                paths.append(&mut self.random_walk(*x0, *y0, Color::WHITE))
+                paths.append(&mut self.random_walk(*x0, *y0, if first {Color::GREEN} else {Color::WHITE}));
             }
+            first = false;
         }
 
-        let p0 = caverns[0];
-        for i in 0..caverns.len() {
-            let p = caverns[i];
-            let color = COLOR_LIST[i % COLOR_LIST.len()];
-            if let Some(path) = self.get_path(p0, p) {
-                for (x, y) in path {
-                    *self.get_mut(x, y).unwrap() = color;
-                }
+        let origin = caverns[0];
+        caverns.iter().for_each(|cavern| {
+            if self.get_path(origin, *cavern).is_none() {
+                
+                let closest_unconnected = caverns.iter().filter(|other_cavern| {
+                    self.get_path(*cavern, **other_cavern).is_none()
+                }).min_by_key(|other_cavern| {
+                    distance(*cavern,** other_cavern)
+                });
+
+                self.generate_connecting_tunnel(*cavern, *closest_unconnected.unwrap(), Color::WHITE);
             }
-        }
+        });
     }
 
     pub fn to_color_image(&self) -> ColorImage {
