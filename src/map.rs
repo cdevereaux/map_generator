@@ -3,28 +3,9 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use eframe::epaint::Color32 as Color;
-use eframe::epaint::ColorImage;
 use rand::distributions::Distribution;
 use rand::distributions::Standard;
-use rand::rngs::ThreadRng;
 use rand::Rng;
-
-//A list of visually distinct colours
-const COLOR_LIST: [Color; 12] = [
-    Color::from_rgb(0xa6, 0xce, 0xe3),
-    Color::from_rgb(0x1f, 0x78, 0xb4),
-    Color::from_rgb(0xb2, 0xdf, 0x8a),
-    Color::from_rgb(0x33, 0xa0, 0x2c),
-    Color::from_rgb(0xfb, 0x9a, 0x99),
-    Color::from_rgb(0xe3, 0x1a, 0x1c),
-    Color::from_rgb(0xfd, 0xbf, 0x6f),
-    Color::from_rgb(0xff, 0x7f, 0x00),
-    Color::from_rgb(0xca, 0xb2, 0xd6),
-    Color::from_rgb(0x6a, 0x3d, 0x9a),
-    Color::from_rgb(0xff, 0xff, 0x99),
-    Color::from_rgb(0xb1, 0x59, 0x28),
-];
 
 #[derive(PartialEq, Debug)]
 pub enum CardinalDirection {
@@ -33,7 +14,6 @@ pub enum CardinalDirection {
     Left,
     Right,
 }
-
 
 impl Distribution<CardinalDirection> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CardinalDirection {
@@ -59,7 +39,7 @@ pub struct Tile {
 
 impl Default for Tile {
     fn default() -> Self {
-        Tile { 
+        Tile {
             sprite_index: 206,
             passable: false,
         }
@@ -105,42 +85,68 @@ impl Map {
     }
 
     //A* search
-    fn get_path(&self, start: (usize, usize), target: (usize, usize)) -> Option<Vec<(usize, usize)>> {
+    fn get_path(
+        &self,
+        start: (usize, usize),
+        target: (usize, usize),
+    ) -> Option<Vec<(usize, usize)>> {
         let mut open_set = BTreeSet::new(); //(weight, point, came_from)
         let mut best_paths = HashMap::new(); //(point: (came_from, length))
-        
+
         open_set.insert((distance(start, target), start, start));
         while let Some((weight, point, came_from)) = open_set.pop_first() {
             if point == target {
                 let mut last_point = target;
-                let mut path: Vec<(usize, usize)> = (0..).map_while(|_| {
-                    if let Some((next, _)) = best_paths.get(&last_point) {
-                        let temp = last_point;
-                        last_point = *next;
-                        Some(temp)
-                    } else {None}
-                }).collect();
+                let mut path: Vec<(usize, usize)> = (0..)
+                    .map_while(|_| {
+                        if let Some((next, _)) = best_paths.get(&last_point) {
+                            let temp = last_point;
+                            last_point = *next;
+                            Some(temp)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
                 path.reverse();
                 return Some(path);
             }
 
             open_set.remove(&(weight, point, came_from));
-            for (dx, dy) in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)] {
-                let length_delta = if dx != 0 && dy != 0 {2} else {1};
+            for (dx, dy) in [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+            ] {
+                let length_delta = if dx != 0 && dy != 0 { 2 } else { 1 };
                 let tentative_length = weight + length_delta - distance(point, target);
 
-                let next_point = (point.0.saturating_add_signed(dx), point.1.saturating_add_signed(dy));
+                let next_point = (
+                    point.0.saturating_add_signed(dx),
+                    point.1.saturating_add_signed(dy),
+                );
 
-                if next_point == start {continue;}
-                if let Some(tile) = self.get(next_point) {
-                    if !tile.passable {continue;}
+                if next_point == start {
+                    continue;
                 }
-                if self.get(next_point).is_none() { continue; }
-                
+                if let Some(tile) = self.get(next_point) {
+                    if !tile.passable {
+                        continue;
+                    }
+                }
+                if self.get(next_point).is_none() {
+                    continue;
+                }
+
                 let successor = (
                     tentative_length + distance(next_point, target),
                     next_point,
-                    point
+                    point,
                 );
 
                 let updated = if let Some((came_from, length)) = best_paths.get_mut(&next_point) {
@@ -148,7 +154,9 @@ impl Map {
                         *came_from = point;
                         *length = tentative_length;
                         true
-                    } else {false}
+                    } else {
+                        false
+                    }
                 } else {
                     best_paths.insert(next_point, (point, tentative_length));
                     true
@@ -157,14 +165,16 @@ impl Map {
                 if updated {
                     open_set.insert(successor);
                 }
-                
             }
         }
         None
     }
 
-    
-    fn generate_connecting_tunnel(&mut self, start: (usize, usize), target: (usize, usize)) -> Vec<(usize, usize)> {
+    fn generate_connecting_tunnel(
+        &mut self,
+        start: (usize, usize),
+        target: (usize, usize),
+    ) -> Vec<(usize, usize)> {
         let (mut x, mut y) = start;
         let mut path = Vec::new();
         let mut rng = rand::thread_rng();
@@ -172,14 +182,25 @@ impl Map {
         for i in 0.. {
             use CardinalDirection::*;
             let direction_to_target = (
-                if target.0.saturating_sub(x) > 0 {Right} else {Left},
-                if target.1.saturating_sub(y) > 0 {Up} else {Down},
+                if target.0.saturating_sub(x) > 0 {
+                    Right
+                } else {
+                    Left
+                },
+                if target.1.saturating_sub(y) > 0 {
+                    Up
+                } else {
+                    Down
+                },
             );
 
-            let mut rerolls = i%2;
+            let mut rerolls = i % 2;
             let next_step = loop {
                 let tentative_step = rng.gen::<CardinalDirection>();
-                if tentative_step != direction_to_target.0 && tentative_step != direction_to_target.1 && rerolls > 0 {
+                if tentative_step != direction_to_target.0
+                    && tentative_step != direction_to_target.1
+                    && rerolls > 0
+                {
                     rerolls -= 1;
                     continue;
                 }
@@ -200,14 +221,13 @@ impl Map {
                 tile.passable = true;
                 tile.sprite_index = 520;
             }
-            
-            if i%128 == 0 && self.get_path(start, target).is_some() {break;} 
+
+            if i % 128 == 0 && self.get_path(start, target).is_some() {
+                break;
+            }
         }
         path
-        
     }
-
-
 
     fn random_walk(&mut self, x0: usize, y0: usize) -> Vec<(usize, usize)> {
         let (mut x, mut y) = (x0, y0);
@@ -247,9 +267,10 @@ impl Map {
                 rng.gen_range(0..Self::WIDTH),
                 rng.gen_range(0..Self::HEIGHT),
             );
-            if caverns.iter().any(|(x0, y0)| {
-                distance((*x0, *y0), (x, y)) < self.max_cavern_dist
-            }) {
+            if caverns
+                .iter()
+                .any(|(x0, y0)| distance((*x0, *y0), (x, y)) < self.max_cavern_dist)
+            {
                 caverns.push((x, y));
             }
         }
@@ -264,12 +285,10 @@ impl Map {
         let origin = caverns[0];
         caverns.iter().for_each(|cavern| {
             if self.get_path(origin, *cavern).is_none() {
-                
-                let closest_unconnected = caverns.iter().filter(|other_cavern| {
-                    self.get_path(*cavern, **other_cavern).is_none()
-                }).min_by_key(|other_cavern| {
-                    distance(*cavern,** other_cavern)
-                });
+                let closest_unconnected = caverns
+                    .iter()
+                    .filter(|other_cavern| self.get_path(*cavern, **other_cavern).is_none())
+                    .min_by_key(|other_cavern| distance(*cavern, **other_cavern));
 
                 self.generate_connecting_tunnel(*cavern, *closest_unconnected.unwrap());
             }
@@ -279,13 +298,17 @@ impl Map {
     pub fn get(&self, (x, y): (usize, usize)) -> Option<&Tile> {
         if let Some(row) = self.grid.get(y) {
             row.get(x)
-        } else {None}
+        } else {
+            None
+        }
     }
 
     fn get_mut(&mut self, (x, y): (usize, usize)) -> Option<&mut Tile> {
         if let Some(row) = self.grid.get_mut(y) {
             row.get_mut(x)
-        } else {None}
+        } else {
+            None
+        }
     }
 }
 
