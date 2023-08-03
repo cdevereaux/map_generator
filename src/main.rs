@@ -1,4 +1,4 @@
-use bevy::{prelude::*, input::mouse::{MouseMotion, MouseWheel}};
+use bevy::{prelude::*, input::mouse::{MouseMotion, MouseWheel}, render::camera::RenderTarget, window::WindowRef};
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use map::Map;
 
@@ -24,8 +24,14 @@ pub struct SpriteAtlas {
 #[derive(Component)]
 pub struct MapTile;
 
+#[derive(Component)]
+pub struct ToolsWindow;
+
+#[derive(Component)]
+pub struct MainCamera;
+
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atlases: ResMut<Assets<TextureAtlas>>,) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn((Camera2dBundle::default(), MainCamera));
     
     let texture_handle = asset_server.load("urizen_onebit_tileset__v1d0.png");
     let texture_atlas =
@@ -36,6 +42,24 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atl
     let mut map = Map::new();
     map.generate();
     commands.insert_resource(map);
+
+    // Spawn second window
+    let tools_window = commands
+        .spawn((Window {
+            title: "Tools window".to_owned(),
+            ..default()
+        }, ToolsWindow))
+        .id();
+
+    // Spawn dummy camera for window
+    commands.spawn(Camera2dBundle {
+        camera: Camera {
+            target: RenderTarget::Window(WindowRef::Entity(tools_window)),
+            ..default()
+        },
+        ..default()
+    });
+
 }
 
 fn display_map(mut commands: Commands, mut map: ResMut<Map>, atlas: Res<SpriteAtlas>, old_tiles_query: Query<Entity, With<MapTile>>) {
@@ -69,9 +93,11 @@ fn display_map(mut commands: Commands, mut map: ResMut<Map>, atlas: Res<SpriteAt
 fn mouse_drag(
     mouse: Res<Input<MouseButton>>,
     mut motion_evr: EventReader<MouseMotion>,
-    mut camera_query: Query<&mut Transform, With<Camera>>,
-    projection_query: Query<&OrthographicProjection, With<Camera>>,
+    mut camera_query: Query<&mut Transform, With<MainCamera>>,
+    projection_query: Query<&OrthographicProjection, With<MainCamera>>,
+    window_query: Query<&Window, Without<ToolsWindow>>,
 ) {
+    if let None = window_query.single().cursor_position() {return;}
     if mouse.pressed(MouseButton::Left) {
         let mut camera_transform = camera_query.single_mut();
         let zoom_level = projection_query.get_single().unwrap().scale;
@@ -85,7 +111,7 @@ fn mouse_drag(
 
 fn mouse_zoom(
     mut scroll_evr: EventReader<MouseWheel>,
-    mut projection_query: Query<&mut OrthographicProjection, With<Camera>>,
+    mut projection_query: Query<&mut OrthographicProjection, With<MainCamera>>,
 ) {
 
     let mut projection = projection_query.single_mut();
@@ -98,11 +124,10 @@ fn mouse_zoom(
         projection.scale *= zoom_delta;
     }
 
-
 }
 
-fn generation_options_ui(mut contexts: EguiContexts, mut map: ResMut<Map>) {
-    egui::SidePanel::new(egui::panel::Side::Right, "Tools").show(contexts.ctx_mut(), |ui| {
+fn generation_options_ui(mut contexts: EguiContexts, mut map: ResMut<Map>, window_query: Query<Entity, With<ToolsWindow>>) {
+    egui::CentralPanel::default().show(contexts.ctx_for_window_mut(window_query.get_single().unwrap()), |ui| {
         if ui
             .add(egui::DragValue::new(&mut map.cavern_count).prefix("Cavern Count: "))
             .changed()
