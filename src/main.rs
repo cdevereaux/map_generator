@@ -12,7 +12,7 @@ fn main() {
     .add_plugins(EguiPlugin)
     .insert_resource(ClearColor(Color::BLACK))
     .add_systems(Startup, setup)
-    .add_systems(Update, (mouse_drag, mouse_zoom, ui_example_system))
+    .add_systems(Update, (mouse_drag, mouse_zoom, display_map.run_if(resource_changed::<Map>()), generation_options_ui))
     .run();
 }
 
@@ -20,6 +20,9 @@ fn main() {
 pub struct SpriteAtlas {
     handle: Handle<TextureAtlas>,
 }
+
+#[derive(Component)]
+pub struct MapTile;
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atlases: ResMut<Assets<TextureAtlas>>,) {
     commands.spawn(Camera2dBundle::default());
@@ -32,12 +35,23 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atl
 
     let mut map = Map::new();
     map.generate();
+    commands.insert_resource(map);
+}
+
+fn display_map(mut commands: Commands, mut map: ResMut<Map>, atlas: Res<SpriteAtlas>, old_tiles_query: Query<Entity, With<MapTile>>) {
+    if !map.reset { return; }
+    
+    //clear old map
+    for old_tile_entity in old_tiles_query.iter() {
+        commands.entity(old_tile_entity).despawn_recursive();
+    }
+
     for x in 0..map.width {
         for y in 0..map.height {
             let sprite_index = if let Some(tile) = map.get((x, y)) { tile.sprite_index } else { 2499 };
             commands.spawn((
                 SpriteSheetBundle {
-                texture_atlas: handle.clone(),
+                texture_atlas: atlas.handle.clone(),
                 sprite: TextureAtlasSprite::new(sprite_index),
                 transform: Transform {
                     translation: Vec3::new(x as f32, y as f32, 0.0) * Vec3::splat(12.0),
@@ -45,17 +59,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atl
                 },
                 ..Default::default()
             },
+            MapTile,
         ));
         }
     }
+    map.reset = false;
 }
-
 
 fn mouse_drag(
     mouse: Res<Input<MouseButton>>,
     mut motion_evr: EventReader<MouseMotion>,
     mut camera_query: Query<&mut Transform, With<Camera>>,
-    mut projection_query: Query<&OrthographicProjection, With<Camera>>,
+    projection_query: Query<&OrthographicProjection, With<Camera>>,
 ) {
     if mouse.pressed(MouseButton::Left) {
         let mut camera_transform = camera_query.single_mut();
@@ -86,9 +101,40 @@ fn mouse_zoom(
 
 }
 
-fn ui_example_system(mut contexts: EguiContexts) {
-    egui::SidePanel::new(egui::panel::Side::Right, "Hello").show(contexts.ctx_mut(), |ui| {
-        ui.label("world");
+fn generation_options_ui(mut contexts: EguiContexts, mut map: ResMut<Map>) {
+    egui::SidePanel::new(egui::panel::Side::Right, "Tools").show(contexts.ctx_mut(), |ui| {
+        if ui
+            .add(egui::DragValue::new(&mut map.cavern_count).prefix("Cavern Count: "))
+            .changed()
+        {
+            map.cavern_count = map.cavern_count.clamp(1, 64);
+        }
+
+        if ui
+            .add(egui::DragValue::new(&mut map.max_cavern_dist).prefix("Max. Cavern Dist.: "))
+            .changed()
+        {
+            map.max_cavern_dist = map.max_cavern_dist.clamp(0, 300);
+        }
+
+        if ui
+            .add(egui::DragValue::new(&mut map.walk_count).prefix("Walk Count: "))
+            .changed()
+        {
+            map.walk_count = map.walk_count.clamp(1, 100);
+        }
+
+        if ui
+            .add(egui::DragValue::new(&mut map.walk_len).prefix("Walk Length: "))
+            .changed()
+        {
+            map.walk_len = map.walk_len.clamp(1, 500);
+        }
+
+        if ui.button("Reset").clicked() {
+            map.reset();
+            map.generate();
+        }
     });
 }
 

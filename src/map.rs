@@ -75,11 +75,12 @@ pub struct Map {
     pub walk_len: usize,
     pub width: usize,
     pub height: usize,
+    pub reset: bool,
 }
 
 impl Map {
-    const HEIGHT: usize = 1000;
-    const WIDTH: usize = 2000;
+    const HEIGHT: usize = 250;
+    const WIDTH: usize = 500;
 
     pub fn new() -> Self {
         Map {
@@ -90,6 +91,7 @@ impl Map {
             walk_len: 50,
             width: Self::WIDTH,
             height: Self::HEIGHT,
+            reset: true,
         }
     }
 
@@ -99,6 +101,7 @@ impl Map {
                 *tile = Tile::default();
             })
         });
+        self.reset = true;
     }
 
     //A* search
@@ -132,6 +135,7 @@ impl Map {
                 if let Some(tile) = self.get(next_point) {
                     if !tile.passable {continue;}
                 }
+                if self.get(next_point).is_none() { continue; }
                 
                 let successor = (
                     tentative_length + distance(next_point, target),
@@ -160,7 +164,7 @@ impl Map {
     }
 
     
-    fn generate_connecting_tunnel(&mut self, start: (usize, usize), target: (usize, usize), color: Color) -> Vec<(usize, usize)> {
+    fn generate_connecting_tunnel(&mut self, start: (usize, usize), target: (usize, usize)) -> Vec<(usize, usize)> {
         let (mut x, mut y) = start;
         let mut path = Vec::new();
         let mut rng = rand::thread_rng();
@@ -250,13 +254,11 @@ impl Map {
             }
         }
 
-        let mut first = true; //Temp
         for (x0, y0) in &caverns {
             let mut paths = Vec::new();
             for _ in 0..self.walk_count {
                 paths.append(&mut self.random_walk(*x0, *y0));
             }
-            first = false;
         }
 
         let origin = caverns[0];
@@ -269,7 +271,7 @@ impl Map {
                     distance(*cavern,** other_cavern)
                 });
 
-                self.generate_connecting_tunnel(*cavern, *closest_unconnected.unwrap(), Color::WHITE);
+                self.generate_connecting_tunnel(*cavern, *closest_unconnected.unwrap());
             }
         });
     }
