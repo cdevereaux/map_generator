@@ -1,119 +1,197 @@
-use eframe::{
-    egui::{self, Sense, TextureOptions},
-    epaint::{pos2, Color32, ImageData, Rect, Shadow, TextureHandle, Vec2},
-};
+use bevy::{prelude::*, input::mouse::{MouseMotion, MouseWheel}};
+use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use map::Map;
 
 mod map;
 
 fn main() {
-    let native_options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "Map Generator",
-        native_options,
-        Box::new(|cc| Box::new(App::new(cc))),
-    )
-    .unwrap();
+    App::new()
+    .add_plugins(DefaultPlugins.set(
+        ImagePlugin::default_nearest(),
+    ))
+    .add_plugins(EguiPlugin)
+    .insert_resource(ClearColor(Color::BLACK))
+    .add_systems(Startup, setup)
+    .add_systems(Update, (mouse_drag, mouse_zoom, ui_example_system))
+    .run();
 }
 
-struct App {
-    map: map::Map,
-    map_texture: TextureHandle,
-    zoom: f32,
-    image_translation: Vec2,
+#[derive(Resource)]
+pub struct SpriteAtlas {
+    handle: Handle<TextureAtlas>,
 }
 
-impl App {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_visuals(egui::Visuals {
-            window_shadow: Shadow::NONE,
-            ..Default::default()
-        });
-        let mut map = map::Map::new();
-        map.generate();
-        let map_texture = cc.egui_ctx.load_texture(
-            "map".to_string(),
-            ImageData::Color(map.to_color_image()),
-            TextureOptions::NEAREST,
-        );
-        Self {
-            map,
-            map_texture,
-            zoom: 1.0,
-            image_translation: Vec2::ZERO,
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atlases: ResMut<Assets<TextureAtlas>>,) {
+    commands.spawn(Camera2dBundle::default());
+    
+    let texture_handle = asset_server.load("urizen_onebit_tileset__v1d0.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(12.0, 12.0), 103, 50, Some(Vec2::new(1.0, 1.0)), Some(Vec2::new(1.0, 1.0)));
+    let handle = texture_atlases.add(texture_atlas);
+    commands.insert_resource(SpriteAtlas{handle: handle.clone()});
+
+    let mut map = Map::new();
+    map.generate();
+    for x in 0..map.width {
+        for y in 0..map.height {
+            let sprite_index = if let Some(tile) = map.get((x, y)) { tile.sprite_index } else { 2499 };
+            commands.spawn((
+                SpriteSheetBundle {
+                texture_atlas: handle.clone(),
+                sprite: TextureAtlasSprite::new(sprite_index),
+                transform: Transform {
+                    translation: Vec3::new(x as f32, y as f32, 0.0) * Vec3::splat(12.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ));
         }
     }
 }
 
-impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::Window::new("Tools").title_bar(false).show(ctx, |ui| {
-            ui.label("Tools");
 
-            if ui
-                .add(egui::DragValue::new(&mut self.map.cavern_count).prefix("Cavern Count: "))
-                .changed()
-            {
-                self.map.cavern_count = self.map.cavern_count.clamp(1, 64);
-            }
-
-            if ui
-                .add(egui::DragValue::new(&mut self.map.max_cavern_dist).prefix("Max. Cavern Dist.: "))
-                .changed()
-            {
-                self.map.max_cavern_dist = self.map.max_cavern_dist.clamp(0, 300);
-            }
-
-            if ui
-                .add(egui::DragValue::new(&mut self.map.walk_count).prefix("Walk Count: "))
-                .changed()
-            {
-                self.map.walk_count = self.map.walk_count.clamp(1, 100);
-            }
-
-            if ui
-                .add(egui::DragValue::new(&mut self.map.walk_len).prefix("Walk Length: "))
-                .changed()
-            {
-                self.map.walk_len = self.map.walk_len.clamp(1, 500);
-            }
-
-            if ui.button("Reset").clicked() {
-                self.map.reset();
-                self.map.generate();
-                self.map_texture.set(
-                    ImageData::Color(self.map.to_color_image()),
-                    TextureOptions::NEAREST,
-                );
-            }
-        });
-
-        let response = egui::CentralPanel::default()
-            .show(ctx, |ui| {
-                let image_center = ui.clip_rect().center() + self.image_translation;
-                let image_size = Vec2 {
-                    x: self.map_texture.size_vec2().x * self.zoom,
-                    y: self.map_texture.size_vec2().y * self.zoom,
-                };
-
-                let painter = ui.painter();
-                painter.image(
-                    self.map_texture.id(),
-                    Rect::from_center_size(image_center, image_size),
-                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-
-                let zoom_delta = ui.input(|i| match i.scroll_delta.y {
-                    x if x > 0.0 => 1.1,
-                    x if x < 0.0 => 1.0 / 1.1,
-                    _ => 1.0,
-                });
-                self.zoom = (self.zoom * zoom_delta).clamp(0.1, 10.0);
-            })
-            .response
-            .interact(Sense::click_and_drag());
-
-        let drag_delta = response.drag_delta();
-        self.image_translation += drag_delta;
+fn mouse_drag(
+    mouse: Res<Input<MouseButton>>,
+    mut motion_evr: EventReader<MouseMotion>,
+    mut camera_query: Query<&mut Transform, With<Camera>>,
+    mut projection_query: Query<&OrthographicProjection, With<Camera>>,
+) {
+    if mouse.pressed(MouseButton::Left) {
+        let mut camera_transform = camera_query.single_mut();
+        let zoom_level = projection_query.get_single().unwrap().scale;
+        for event in motion_evr.iter() {
+            camera_transform.translation.x -= event.delta.x * zoom_level;
+            camera_transform.translation.y += event.delta.y * zoom_level;
+        }
     }
+
 }
+
+fn mouse_zoom(
+    mut scroll_evr: EventReader<MouseWheel>,
+    mut projection_query: Query<&mut OrthographicProjection, With<Camera>>,
+) {
+
+    let mut projection = projection_query.single_mut();
+    for event in scroll_evr.iter() {
+       let zoom_delta = match event.y {
+            y if y > 0.0 => 1.0 / 1.1,
+            y if y < 0.0 => 1.1,
+            _ => 1.0,
+        };
+        projection.scale *= zoom_delta;
+    }
+
+
+}
+
+fn ui_example_system(mut contexts: EguiContexts) {
+    egui::SidePanel::new(egui::panel::Side::Right, "Hello").show(contexts.ctx_mut(), |ui| {
+        ui.label("world");
+    });
+}
+
+
+// struct App {
+//     map: map::Map,
+//     map_texture: TextureHandle,
+//     zoom: f32,
+//     image_translation: Vec2,
+// }
+
+// impl App {
+//     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+//         cc.egui_ctx.set_visuals(egui::Visuals {
+//             window_shadow: Shadow::NONE,
+//             ..Default::default()
+//         });
+//         let mut map = map::Map::new();
+//         map.generate();
+//         let map_texture = cc.egui_ctx.load_texture(
+//             "map".to_string(),
+//             ImageData::Color(map.to_color_image()),
+//             TextureOptions::NEAREST,
+//         );
+//         Self {
+//             map,
+//             map_texture,
+//             zoom: 1.0,
+//             image_translation: Vec2::ZERO,
+//         }
+//     }
+// }
+
+// impl eframe::App for App {
+//     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+//         egui::Window::new("Tools").title_bar(false).show(ctx, |ui| {
+//             ui.label("Tools");
+
+//             if ui
+//                 .add(egui::DragValue::new(&mut self.map.cavern_count).prefix("Cavern Count: "))
+//                 .changed()
+//             {
+//                 self.map.cavern_count = self.map.cavern_count.clamp(1, 64);
+//             }
+
+//             if ui
+//                 .add(egui::DragValue::new(&mut self.map.max_cavern_dist).prefix("Max. Cavern Dist.: "))
+//                 .changed()
+//             {
+//                 self.map.max_cavern_dist = self.map.max_cavern_dist.clamp(0, 300);
+//             }
+
+//             if ui
+//                 .add(egui::DragValue::new(&mut self.map.walk_count).prefix("Walk Count: "))
+//                 .changed()
+//             {
+//                 self.map.walk_count = self.map.walk_count.clamp(1, 100);
+//             }
+
+//             if ui
+//                 .add(egui::DragValue::new(&mut self.map.walk_len).prefix("Walk Length: "))
+//                 .changed()
+//             {
+//                 self.map.walk_len = self.map.walk_len.clamp(1, 500);
+//             }
+
+//             if ui.button("Reset").clicked() {
+//                 self.map.reset();
+//                 self.map.generate();
+//                 self.map_texture.set(
+//                     ImageData::Color(self.map.to_color_image()),
+//                     TextureOptions::NEAREST,
+//                 );
+//             }
+//         });
+
+//         let response = egui::CentralPanel::default()
+//             .show(ctx, |ui| {
+//                 let image_center = ui.clip_rect().center() + self.image_translation;
+//                 let image_size = Vec2 {
+//                     x: self.map_texture.size_vec2().x * self.zoom,
+//                     y: self.map_texture.size_vec2().y * self.zoom,
+//                 };
+
+//                 let painter = ui.painter();
+//                 painter.image(
+//                     self.map_texture.id(),
+//                     Rect::from_center_size(image_center, image_size),
+//                     Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+//                     Color32::WHITE,
+//                 );
+
+//                 let zoom_delta = ui.input(|i| match i.scroll_delta.y {
+//                     x if x > 0.0 => 1.1,
+//                     x if x < 0.0 => 1.0 / 1.1,
+//                     _ => 1.0,
+//                 });
+//                 self.zoom = (self.zoom * zoom_delta).clamp(0.1, 10.0);
+//             })
+//             .response
+//             .interact(Sense::click_and_drag());
+
+//         let drag_delta = response.drag_delta();
+//         self.image_translation += drag_delta;
+//     }
+// }

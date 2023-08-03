@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
+use bevy::prelude::*;
+
 use eframe::epaint::Color32 as Color;
 use eframe::epaint::ColorImage;
 use rand::distributions::Distribution;
@@ -49,15 +51,30 @@ fn distance(p0: (usize, usize), p1: (usize, usize)) -> usize {
     std::cmp::max(p0.0.abs_diff(p1.0), p0.1.abs_diff(p1.1))
 }
 
+#[derive(Clone)]
+pub struct Tile {
+    pub sprite_index: usize,
+    pub passable: bool,
+}
 
+impl Default for Tile {
+    fn default() -> Self {
+        Tile { 
+            sprite_index: 206,
+            passable: false,
+        }
+    }
+}
 
+#[derive(Resource)]
 pub struct Map {
-    color_grid: Vec<Vec<Color>>,
-    rng: ThreadRng,
+    grid: Vec<Vec<Tile>>,
     pub cavern_count: usize,
     pub max_cavern_dist: usize,
     pub walk_count: usize,
     pub walk_len: usize,
+    pub width: usize,
+    pub height: usize,
 }
 
 impl Map {
@@ -66,19 +83,20 @@ impl Map {
 
     pub fn new() -> Self {
         Map {
-            color_grid: vec![vec![Color::BLACK; Self::WIDTH]; Self::HEIGHT],
-            rng: rand::thread_rng(),
+            grid: vec![vec![Tile::default(); Self::WIDTH]; Self::HEIGHT],
             cavern_count: 12,
             max_cavern_dist: 100,
             walk_count: 50,
             walk_len: 50,
+            width: Self::WIDTH,
+            height: Self::HEIGHT,
         }
     }
 
     pub fn reset(&mut self) {
-        self.color_grid.iter_mut().for_each(|row| {
-            row.iter_mut().for_each(|p| {
-                *p = Color::BLACK;
+        self.grid.iter_mut().for_each(|row| {
+            row.iter_mut().for_each(|tile| {
+                *tile = Tile::default();
             })
         });
     }
@@ -111,7 +129,9 @@ impl Map {
                 let next_point = (point.0.saturating_add_signed(dx), point.1.saturating_add_signed(dy));
 
                 if next_point == start {continue;}
-                if self.get(next_point.0, next_point.1) == Some(&Color::BLACK) || self.get(next_point.0, next_point.1) == None {continue;}
+                if let Some(tile) = self.get(next_point) {
+                    if !tile.passable {continue;}
+                }
                 
                 let successor = (
                     tentative_length + distance(next_point, target),
@@ -143,7 +163,7 @@ impl Map {
     fn generate_connecting_tunnel(&mut self, start: (usize, usize), target: (usize, usize), color: Color) -> Vec<(usize, usize)> {
         let (mut x, mut y) = start;
         let mut path = Vec::new();
-        
+        let mut rng = rand::thread_rng();
 
         for i in 0.. {
             use CardinalDirection::*;
@@ -154,7 +174,7 @@ impl Map {
 
             let mut rerolls = i%2;
             let next_step = loop {
-                let tentative_step = self.rng.gen::<CardinalDirection>();
+                let tentative_step = rng.gen::<CardinalDirection>();
                 if tentative_step != direction_to_target.0 && tentative_step != direction_to_target.1 && rerolls > 0 {
                     rerolls -= 1;
                     continue;
@@ -172,8 +192,9 @@ impl Map {
             y = y.clamp(0, Self::HEIGHT - 1);
 
             path.push((x, y));
-            if let Some(tile) = self.get_mut(x, y) {
-                *tile = color;
+            if let Some(tile) = self.get_mut((x, y)) {
+                tile.passable = true;
+                tile.sprite_index = 520;
             }
             
             if i%128 == 0 && self.get_path(start, target).is_some() {break;} 
@@ -184,13 +205,14 @@ impl Map {
 
 
 
-    fn random_walk(&mut self, x0: usize, y0: usize, color: Color) -> Vec<(usize, usize)> {
+    fn random_walk(&mut self, x0: usize, y0: usize) -> Vec<(usize, usize)> {
         let (mut x, mut y) = (x0, y0);
         let mut path = Vec::new();
+        let mut rng = rand::thread_rng();
 
         for _ in 0..self.walk_len {
             use CardinalDirection::*;
-            match self.rng.gen::<CardinalDirection>() {
+            match rng.gen::<CardinalDirection>() {
                 Up => y += 1,
                 Down => y = y.saturating_sub(1),
                 Left => x = x.saturating_sub(1),
@@ -200,8 +222,9 @@ impl Map {
             y = y.clamp(0, Self::HEIGHT - 1);
 
             path.push((x, y));
-            if let Some(tile) = self.get_mut(x, y) {
-                *tile = color;
+            if let Some(tile) = self.get_mut((x, y)) {
+                tile.passable = true;
+                tile.sprite_index = 520;
             }
         }
         path
@@ -213,11 +236,12 @@ impl Map {
 
     pub fn generate_caverns(&mut self) {
         let mut caverns = vec![(Self::WIDTH / 2, Self::HEIGHT / 2)];
+        let mut rng = rand::thread_rng();
 
         while caverns.len() < self.cavern_count {
             let (x, y) = (
-                self.rng.gen_range(0..Self::WIDTH),
-                self.rng.gen_range(0..Self::HEIGHT),
+                rng.gen_range(0..Self::WIDTH),
+                rng.gen_range(0..Self::HEIGHT),
             );
             if caverns.iter().any(|(x0, y0)| {
                 distance((*x0, *y0), (x, y)) < self.max_cavern_dist
@@ -230,7 +254,7 @@ impl Map {
         for (x0, y0) in &caverns {
             let mut paths = Vec::new();
             for _ in 0..self.walk_count {
-                paths.append(&mut self.random_walk(*x0, *y0, if first {Color::GREEN} else {Color::WHITE}));
+                paths.append(&mut self.random_walk(*x0, *y0));
             }
             first = false;
         }
@@ -250,25 +274,14 @@ impl Map {
         });
     }
 
-    pub fn to_color_image(&self) -> ColorImage {
-        let mut pixels = Vec::new();
-        for i in 0..self.color_grid.len() {
-            pixels.append(&mut self.color_grid[i].clone());
-        }
-        ColorImage {
-            size: [Self::WIDTH, Self::HEIGHT],
-            pixels,
-        }
-    }
-
-    fn get(&self, x: usize, y: usize) -> Option<&Color> {
-        if let Some(row) = self.color_grid.get(y) {
+    pub fn get(&self, (x, y): (usize, usize)) -> Option<&Tile> {
+        if let Some(row) = self.grid.get(y) {
             row.get(x)
         } else {None}
     }
 
-    fn get_mut(&mut self, x: usize, y: usize) -> Option<&mut Color> {
-        if let Some(row) = self.color_grid.get_mut(y) {
+    fn get_mut(&mut self, (x, y): (usize, usize)) -> Option<&mut Tile> {
+        if let Some(row) = self.grid.get_mut(y) {
             row.get_mut(x)
         } else {None}
     }
