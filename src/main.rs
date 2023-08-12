@@ -4,10 +4,12 @@ use bevy::{
     render::camera::RenderTarget,
     window::WindowRef,
 };
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy_egui::{egui::{self, Ui}, EguiContexts, EguiPlugin};
+use generators::MapGeneratorSettings;
 use map::Map;
 
 mod map;
+mod generators;
 
 fn main() {
     App::new()
@@ -62,8 +64,9 @@ fn setup(
         handle: handle.clone(),
     });
 
-    let mut map = Map::new();
-    map.generate();
+    let map_settings = MapGeneratorSettings::default();
+    let mut map = Map::new(map_settings);
+    commands.insert_resource(map_settings);
     commands.insert_resource(map);
 
     // Spawn second window
@@ -93,10 +96,6 @@ fn display_map(
     atlas: Res<SpriteAtlas>,
     old_tiles_query: Query<Entity, With<MapTile>>,
 ) {
-    if !map.reset {
-        return;
-    }
-
     //clear old map
     for old_tile_entity in old_tiles_query.iter() {
         commands.entity(old_tile_entity).despawn_recursive();
@@ -123,7 +122,6 @@ fn display_map(
             ));
         }
     }
-    map.reset = false;
 }
 
 fn mouse_drag(
@@ -161,45 +159,36 @@ fn mouse_zoom(
     }
 }
 
+fn create_egui_drag_value(ui: &mut Ui, name: &str, value: &mut usize)  {
+    if ui
+        .add(egui::DragValue::new(value).prefix(name))
+        .changed()
+    {
+        //*value = (*value).clamp(1, 500);
+    }
+}
+
 fn generation_options_ui(
     mut contexts: EguiContexts,
     mut map: ResMut<Map>,
     window_query: Query<Entity, With<ToolsWindow>>,
+    mut settings: ResMut<MapGeneratorSettings>,
 ) {
     egui::CentralPanel::default().show(
         contexts.ctx_for_window_mut(window_query.get_single().unwrap()),
         |ui| {
-            if ui
-                .add(egui::DragValue::new(&mut map.cavern_count).prefix("Cavern Count: "))
-                .changed()
-            {
-                map.cavern_count = map.cavern_count.clamp(1, 64);
+            use MapGeneratorSettings::*;
+            match &mut *settings {
+                Cavern(settings) => {
+                    create_egui_drag_value(ui, "Cavern Count: ", &mut settings.cavern_count);
+                    create_egui_drag_value(ui, "Cavern Distance: ", &mut settings.max_cavern_dist);
+                    create_egui_drag_value(ui, "Walk Count: ",&mut settings.walk_count);
+                    create_egui_drag_value(ui, "Walk Length: ",&mut settings.walk_len);
+                }
             }
-
-            if ui
-                .add(egui::DragValue::new(&mut map.max_cavern_dist).prefix("Max. Cavern Dist.: "))
-                .changed()
-            {
-                map.max_cavern_dist = map.max_cavern_dist.clamp(0, 300);
-            }
-
-            if ui
-                .add(egui::DragValue::new(&mut map.walk_count).prefix("Walk Count: "))
-                .changed()
-            {
-                map.walk_count = map.walk_count.clamp(1, 100);
-            }
-
-            if ui
-                .add(egui::DragValue::new(&mut map.walk_len).prefix("Walk Length: "))
-                .changed()
-            {
-                map.walk_len = map.walk_len.clamp(1, 500);
-            }
-
             if ui.button("Reset").clicked() {
                 map.reset();
-                map.generate();
+                map.generate(*settings);
             }
         },
     );

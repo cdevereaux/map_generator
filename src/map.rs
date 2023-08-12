@@ -7,6 +7,8 @@ use rand::distributions::Distribution;
 use rand::distributions::Standard;
 use rand::Rng;
 
+use crate::generators::*;
+
 #[derive(PartialEq, Debug)]
 pub enum CardinalDirection {
     Up,
@@ -46,33 +48,26 @@ impl Default for Tile {
     }
 }
 
+
 #[derive(Resource)]
 pub struct Map {
     grid: Vec<Vec<Tile>>,
-    pub cavern_count: usize,
-    pub max_cavern_dist: usize,
-    pub walk_count: usize,
-    pub walk_len: usize,
     pub width: usize,
     pub height: usize,
-    pub reset: bool,
 }
 
 impl Map {
     const HEIGHT: usize = 250;
     const WIDTH: usize = 500;
 
-    pub fn new() -> Self {
-        Map {
+    pub fn new(settings: MapGeneratorSettings) -> Self {
+        let mut map = Map {
             grid: vec![vec![Tile::default(); Self::WIDTH]; Self::HEIGHT],
-            cavern_count: 12,
-            max_cavern_dist: 100,
-            walk_count: 50,
-            walk_len: 50,
             width: Self::WIDTH,
             height: Self::HEIGHT,
-            reset: true,
-        }
+        };
+        map.generate(settings);
+        map
     }
 
     pub fn reset(&mut self) {
@@ -81,7 +76,6 @@ impl Map {
                 *tile = Tile::default();
             })
         });
-        self.reset = true;
     }
 
     //A* search
@@ -229,12 +223,12 @@ impl Map {
         path
     }
 
-    fn random_walk(&mut self, x0: usize, y0: usize) -> Vec<(usize, usize)> {
+    fn random_walk(&mut self, x0: usize, y0: usize, walk_len: usize) -> Vec<(usize, usize)> {
         let (mut x, mut y) = (x0, y0);
         let mut path = Vec::new();
         let mut rng = rand::thread_rng();
 
-        for _ in 0..self.walk_len {
+        for _ in 0..walk_len {
             use CardinalDirection::*;
             match rng.gen::<CardinalDirection>() {
                 Up => y += 1,
@@ -254,22 +248,26 @@ impl Map {
         path
     }
 
-    pub fn generate(&mut self) {
-        self.generate_caverns();
+    pub fn generate(&mut self, settings: MapGeneratorSettings) {
+        use MapGeneratorSettings::*;
+        match settings {
+            Cavern(settings) => self.generate_caverns(settings),
+        }
     }
 
-    pub fn generate_caverns(&mut self) {
-        let mut caverns = vec![(Self::WIDTH / 2, Self::HEIGHT / 2)];
+    pub fn generate_caverns(&mut self, settings: CavernSettings) {
+        let CavernSettings { cavern_count, max_cavern_dist, walk_count, walk_len } = settings;
+        let mut caverns = vec![(self.width / 2, self.height / 2)];
         let mut rng = rand::thread_rng();
 
-        while caverns.len() < self.cavern_count {
+        while caverns.len() < cavern_count {
             let (x, y) = (
-                rng.gen_range(0..Self::WIDTH),
-                rng.gen_range(0..Self::HEIGHT),
+                rng.gen_range(0..self.width),
+                rng.gen_range(0..self.height),
             );
             if caverns
                 .iter()
-                .any(|(x0, y0)| distance((*x0, *y0), (x, y)) < self.max_cavern_dist)
+                .any(|(x0, y0)| distance((*x0, *y0), (x, y)) < max_cavern_dist)
             {
                 caverns.push((x, y));
             }
@@ -277,8 +275,8 @@ impl Map {
 
         for (x0, y0) in &caverns {
             let mut paths = Vec::new();
-            for _ in 0..self.walk_count {
-                paths.append(&mut self.random_walk(*x0, *y0));
+            for _ in 0..walk_count {
+                paths.append(&mut self.random_walk(*x0, *y0, walk_len));
             }
         }
 
@@ -314,6 +312,6 @@ impl Map {
 
 impl Default for Map {
     fn default() -> Self {
-        Self::new()
+        Self::new(MapGeneratorSettings::default())
     }
 }
